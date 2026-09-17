@@ -399,7 +399,7 @@ if(typeof QRCode==="undefined"){console.warn("QRCode not loaded")}
 const PAGE_URL='https://2806164875.github.io/lou-hwp-daily/';
 const KEY_ME='hwp_me_v2', KEY_PWD='hwp_pwd_v2', KEY_MINE='hwp_mine_v2', KEY_POOL='hwp_pool_v2', KEY_SENT='hwp_sent_v2';
 const SB_URL='https://ykraggzrdfnhpreawbbd.supabase.co';
-const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlrcmFnZ3pyZGZuaHByZWF3YmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMTM1OTYsImV4cCI6MjA4MTY4OTU5Nn0.qQjCsG5yGITr0-k0gPuKJqA_d1h4kxkU0K3T4rj7JJs';
+const SB_KEY='sb_publishable_Fj7fQh08XmFmlAT9PtCF4w_3qT-w28-';
 const SUPABASE=window.supabase?window.supabase.createClient(SB_URL,SB_KEY):null;
 const SB_TIMEOUT=5000;
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
@@ -419,47 +419,45 @@ async function saveMine(){
   if(!SUPABASE)return;
   if(!ME||!ME.id)return;
   const userId=ME.id;
+  // hwp_mine: emp_id, rec_date, emp_name, org, payload, type
   for(const rec of MINE.daily){
-    const key=userId+'|'+rec.date;
     try{
       const {data:existing}=await sbFetch(
-        SUPABASE.from('hwp_mine').select('id,data').eq('user_id',userId).eq('date',rec.date).single(),
+        SUPABASE.from('hwp_mine').select('emp_id,rec_date').eq('emp_id',userId).eq('rec_date',rec.date).eq('type','daily').single(),
         'saveMine-daily-check');
+      const row={emp_id:userId,rec_date:rec.date,emp_name:ME.name,org:ME.org||'',payload:rec,type:'daily'};
       if(existing){
-        await sbFetch(
-          SUPABASE.from('hwp_mine').update({data:rec}).eq('id',existing.id),
-          'saveMine-daily-update');
+        await sbFetch(SUPABASE.from('hwp_mine').update(row).eq('emp_id',userId).eq('rec_date',rec.date).eq('type','daily'),'saveMine-daily-update');
       }else{
-        await sbFetch(
-          SUPABASE.from('hwp_mine').insert({user_id:userId,date:rec.date,data:rec}),
-          'saveMine-daily-insert');
+        await sbFetch(SUPABASE.from('hwp_mine').insert(row),'saveMine-daily-insert');
       }
     }catch(e){console.warn('saveMine daily error:',e.message);}
   }
   for(const rec of MINE.weekly){
-    const key=userId+'|'+rec.weekStart;
     try{
       const {data:existing}=await sbFetch(
-        SUPABASE.from('hwp_mine').select('id,data').eq('user_id',userId).eq('date',rec.weekStart).single(),
+        SUPABASE.from('hwp_mine').select('emp_id,rec_date').eq('emp_id',userId).eq('rec_date',rec.weekStart).eq('type','weekly').single(),
         'saveMine-weekly-check');
+      const row={emp_id:userId,rec_date:rec.weekStart,emp_name:ME.name,org:ME.org||'',payload:rec,type:'weekly'};
       if(existing){
-        await sbFetch(
-          SUPABASE.from('hwp_mine').update({data:rec}).eq('id',existing.id),
-          'saveMine-weekly-update');
+        await sbFetch(SUPABASE.from('hwp_mine').update(row).eq('emp_id',userId).eq('rec_date',rec.weekStart).eq('type','weekly'),'saveMine-weekly-update');
       }else{
-        await sbFetch(
-          SUPABASE.from('hwp_mine').insert({user_id:userId,date:rec.weekStart,data:rec}),
-          'saveMine-weekly-insert');
+        await sbFetch(SUPABASE.from('hwp_mine').insert(row),'saveMine-weekly-insert');
       }
     }catch(e){console.warn('saveMine weekly error:',e.message);}
   }
   for(const rec of MINE.feedback){
     try{
-      await sbFetch(
-        SUPABASE.from('hwp_mine').upsert(
-          {user_id:userId,date:rec.date||fmt(new Date()),data:rec},
-          {user_id:userId,date:rec.date||fmt(new Date())}),
-        'saveMine-feedback-upsert');
+      const fbDate=rec.date||fmt(new Date());
+      const {data:existing}=await sbFetch(
+        SUPABASE.from('hwp_mine').select('emp_id,rec_date').eq('emp_id',userId).eq('rec_date',fbDate).eq('type','feedback').single(),
+        'saveMine-feedback-check');
+      const row={emp_id:userId,rec_date:fbDate,emp_name:ME.name,org:ME.org||'',payload:rec,type:'feedback'};
+      if(existing){
+        await sbFetch(SUPABASE.from('hwp_mine').update(row).eq('emp_id',userId).eq('rec_date',fbDate).eq('type','feedback'),'saveMine-feedback-update');
+      }else{
+        await sbFetch(SUPABASE.from('hwp_mine').insert(row),'saveMine-feedback-insert');
+      }
     }catch(e){console.warn('saveMine feedback error:',e.message);}
   }
 }
@@ -470,21 +468,20 @@ async function loadMine(){
   let changed=false;
   try{
     const {data:rows,error}=await sbFetch(
-      SUPABASE.from('hwp_mine').select('*').eq('user_id',userId),
+      SUPABASE.from('hwp_mine').select('*').eq('emp_id',userId),
       'loadMine');
     if(error)throw error;
     if(!rows||!rows.length)return;
     rows.forEach(r=>{
-      if(!r.data)return;
-      const d=r.data;
-      if(d.date&&d.weekStart){
-        const k=r.date+'_weekly';
+      if(!r.payload)return;
+      const d=r.payload;
+      if(r.type==='weekly'&&d.weekStart){
         const ex=MINE.weekly.find(x=>x.weekStart===d.weekStart);
         if(!ex){MINE.weekly.push(d);changed=true;}
-      }else if(d.date){
+      }else if(r.type==='daily'&&d.date){
         const ex=MINE.daily.find(x=>x.date===d.date);
         if(!ex){MINE.daily.push(d);changed=true;}
-      }else if(d.type&&d.desc){
+      }else if(r.type==='feedback'){
         const k=(d.empId||'')+'|'+(d.date||'')+'|'+(d.type||'')+'|'+String(d.desc||'').slice(0,20);
         const ex=MINE.feedback.some(x=>recKey('feedback',x)===k);
         if(!ex){MINE.feedback.push(d);changed=true;}
@@ -497,67 +494,75 @@ async function loadMine(){
 async function savePool(){
   ss(KEY_POOL,POOL);
   if(!SUPABASE)return;
+  // hwp_pool: from_emp_id, from_name, from_org, rec_date, emp_id, emp_name, org, type, payload, received_at
   for(const rec of POOL.daily){
     try{
       const {data:existing}=await sbFetch(
-        SUPABASE.from('hwp_pool').select('id').eq('from_id',rec.empId||'').eq('date',rec.date||'').eq('type','daily').single(),
+        SUPABASE.from('hwp_pool').select('from_emp_id').eq('from_emp_id',ME.id||'').eq('rec_date',rec.date||'').eq('type','daily').single(),
         'savePool-daily-check');
+      const row={from_emp_id:ME.id||'',from_name:ME.name||'',from_org:ME.org||'',rec_date:rec.date||'',emp_id:rec.empId||'',emp_name:rec.name||'',org:rec.org||'',type:'daily',payload:rec,received_at:new Date().toISOString()};
       if(existing){
-        await sbFetch(SUPABASE.from('hwp_pool').update({data:rec}).eq('id',existing.id),'savePool-daily-update');
+        await sbFetch(SUPABASE.from('hwp_pool').update(row).eq('from_emp_id',ME.id||'').eq('rec_date',rec.date||'').eq('type','daily'),'savePool-daily-update');
       }else{
-        await sbFetch(SUPABASE.from('hwp_pool').insert({from_id:rec.empId||'',from_name:rec.name||'',from_org:rec.org||'',date:rec.date||'',type:'daily',data:rec}),'savePool-daily-insert');
+        await sbFetch(SUPABASE.from('hwp_pool').insert(row),'savePool-daily-insert');
       }
     }catch(e){console.warn('savePool daily error:',e.message);}
   }
   for(const rec of POOL.weekly){
     try{
       const {data:existing}=await sbFetch(
-        SUPABASE.from('hwp_pool').select('id').eq('from_id',rec.empId||'').eq('date',rec.weekStart||'').eq('type','weekly').single(),
+        SUPABASE.from('hwp_pool').select('from_emp_id').eq('from_emp_id',ME.id||'').eq('rec_date',rec.weekStart||'').eq('type','weekly').single(),
         'savePool-weekly-check');
+      const row={from_emp_id:ME.id||'',from_name:ME.name||'',from_org:ME.org||'',rec_date:rec.weekStart||'',emp_id:rec.empId||'',emp_name:rec.name||'',org:rec.org||'',type:'weekly',payload:rec,received_at:new Date().toISOString()};
       if(existing){
-        await sbFetch(SUPABASE.from('hwp_pool').update({data:rec}).eq('id',existing.id),'savePool-weekly-update');
+        await sbFetch(SUPABASE.from('hwp_pool').update(row).eq('from_emp_id',ME.id||'').eq('rec_date',rec.weekStart||'').eq('type','weekly'),'savePool-weekly-update');
       }else{
-        await sbFetch(SUPABASE.from('hwp_pool').insert({from_id:rec.empId||'',from_name:rec.name||'',from_org:rec.org||'',date:rec.weekStart||'',type:'weekly',data:rec}),'savePool-weekly-insert');
+        await sbFetch(SUPABASE.from('hwp_pool').insert(row),'savePool-weekly-insert');
       }
     }catch(e){console.warn('savePool weekly error:',e.message);}
   }
   for(const rec of POOL.feedback){
     try{
-      await sbFetch(
-        SUPABASE.from('hwp_pool').upsert(
-          {from_id:rec.empId||'',from_name:rec.name||'',from_org:rec.org||'',date:rec.date||fmt(new Date()),type:'feedback',data:rec},
-          {from_id:rec.empId||'',date:rec.date||fmt(new Date()),type:'feedback'}),
-        'savePool-feedback-upsert');
+      const fbDate=rec.date||fmt(new Date());
+      const {data:existing}=await sbFetch(
+        SUPABASE.from('hwp_pool').select('from_emp_id').eq('from_emp_id',ME.id||'').eq('rec_date',fbDate).eq('type','feedback').single(),
+        'savePool-feedback-check');
+      const row={from_emp_id:ME.id||'',from_name:ME.name||'',from_org:ME.org||'',rec_date:fbDate,emp_id:rec.empId||'',emp_name:rec.name||'',org:rec.org||'',type:'feedback',payload:rec,received_at:new Date().toISOString()};
+      if(existing){
+        await sbFetch(SUPABASE.from('hwp_pool').update(row).eq('from_emp_id',ME.id||'').eq('rec_date',fbDate).eq('type','feedback'),'savePool-feedback-update');
+      }else{
+        await sbFetch(SUPABASE.from('hwp_pool').insert(row),'savePool-feedback-insert');
+      }
     }catch(e){console.warn('savePool feedback error:',e.message);}
   }
 }
 
 async function loadPool(){
   if(!SUPABASE)return;
-  let changed=false;
   try{
     const {data:rows,error}=await sbFetch(
-      SUPABASE.from('hwp_pool').select('*'),
+      SUPABASE.from('hwp_pool').select('from_emp_id,from_name,from_org,rec_date,emp_id,emp_name,org,type,payload,received_at').order('received_at',{ascending:false}),
       'loadPool');
     if(error)throw error;
     if(!rows||!rows.length)return;
     rows.forEach(r=>{
-      if(!r.data)return;
-      const d=r.data;
-      const entry={empId:r.from_id,name:r.from_name,org:r.from_org,...d};
+      const rec=r.payload||{};
+      rec.empId=r.emp_id||'';
+      rec.name=r.emp_name||'';
+      rec.org=r.org||'';
       if(r.type==='daily'){
-        const ex=POOL.daily.find(x=>x.date===d.date&&(x.empId||'')===(d.empId||''));
-        if(!ex){POOL.daily.push(entry);changed=true;}
+        const ex=POOL.daily.find(x=>x.empId===(r.emp_id||'')&&x.date===(r.rec_date||''));
+        if(!ex)POOL.daily.push(rec);
       }else if(r.type==='weekly'){
-        const ex=POOL.weekly.find(x=>x.weekStart===d.weekStart&&(x.empId||'')===(d.empId||''));
-        if(!ex){POOL.weekly.push(entry);changed=true;}
+        const ex=POOL.weekly.find(x=>x.empId===(r.emp_id||'')&&x.weekStart===(r.rec_date||''));
+        if(!ex)POOL.weekly.push(rec);
       }else if(r.type==='feedback'){
-        const k=(d.empId||'')+'|'+(d.date||'')+'|'+(d.type||'')+'|'+String(d.desc||'').slice(0,20);
-        const ex=POOL.feedback.some(x=>recKey('feedback',x)===k);
-        if(!ex){POOL.feedback.push(entry);changed=true;}
+        const ex=POOL.feedback.some(x=>recKey('feedback',x)===recKey('feedback',rec));
+        if(!ex)POOL.feedback.push(rec);
       }
     });
-    if(changed){ss(KEY_POOL,POOL);renderAdmin();}
+    ss(KEY_POOL,POOL);
+    renderPool&&renderPool();
   }catch(e){console.warn('loadPool error:',e.message);}
 }
 
